@@ -9,7 +9,7 @@ from packages.shared.models import Deputy, IngestionRun, IngestionRunStatus
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 
-from apps.extractor.client import CâmaraClient
+from apps.extractor.client import CâmaraApiError, CâmaraClient
 from apps.extractor.schemas import ApiDeputy
 from apps.extractor.transform import NormalizedDeputy, normalize_deputy
 
@@ -22,6 +22,30 @@ class IngestionSummary:
     inserted: int
     updated: int
     rejected: int
+
+
+def _deduplicate(items: list[NormalizedDeputy]) -> list[NormalizedDeputy]:
+    """Mantém apenas a primeira ocorrência de cada deputado na coleta."""
+
+    unique_items: list[NormalizedDeputy] = []
+    seen_ids: set[int] = set()
+    for item in items:
+        if item.external_id in seen_ids:
+            logger.warning("registro duplicado ignorado: external_id=%s", item.external_id)
+            continue
+        seen_ids.add(item.external_id)
+        unique_items.append(item)
+    return unique_items
+
+
+def _safe_error_message(error: Exception) -> str:
+    """Retorna mensagem apropriada para persistir sem vazar detalhes internos."""
+
+    if isinstance(error, CâmaraApiError):
+        return str(error)[:1000]
+    if isinstance(error, ValueError):
+        return "dados externos inválidos durante a ingestão"
+    return "falha interna durante a ingestão"
 
 
 def _changed(existing: Deputy, item: NormalizedDeputy) -> bool:
@@ -104,6 +128,7 @@ def run_ingestion(engine: Engine, settings) -> IngestionSummary:
                 except ValueError as exc:
                     rejected += 1
                     logger.warning("registro rejeitado: index=%s motivo=%s", received, exc)
+        valid_items = _deduplicate(valid_items)
         ingested_at = datetime.now(UTC)
         with session_scope(engine) as session:
             inserted, updated = _upsert(session, valid_items, ingested_at)
@@ -127,5 +152,5 @@ def run_ingestion(engine: Engine, settings) -> IngestionSummary:
                 run.status = IngestionRunStatus.FAILED
                 run.records_received = received
                 run.records_rejected = rejected
-                run.error_message = str(exc)[:1000]
+                run.error_message = _safe_error_message(exc)
         raise

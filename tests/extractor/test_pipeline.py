@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from apps.extractor.pipeline import _upsert
+from apps.extractor.pipeline import _deduplicate, _safe_error_message, _upsert
 from apps.extractor.transform import NormalizedDeputy
 from packages.shared.models import Base, Deputy
 from sqlalchemy import create_engine, select
@@ -19,3 +19,14 @@ def test_upsert_is_idempotent_and_reactivates_rows() -> None:
         session.commit()
         row = session.scalar(select(Deputy).where(Deputy.external_id == 1))
         assert row is not None and row.is_active is True
+
+
+def test_deduplicate_keeps_first_external_id() -> None:
+    first = NormalizedDeputy(1, "Primeiro", "ABC", "SP", None, None, "https://example.org/1")
+    second = NormalizedDeputy(1, "Segundo", "ABC", "SP", None, None, "https://example.org/1")
+    assert _deduplicate([first, second]) == [first]
+
+
+def test_unexpected_error_message_is_sanitized() -> None:
+    error = RuntimeError("password=secret host=internal-db.example")
+    assert _safe_error_message(error) == "falha interna durante a ingestão"
