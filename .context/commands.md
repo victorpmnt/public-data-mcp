@@ -154,13 +154,17 @@ uv run ruff format .
 
 ## MCP
 
-Iniciar por STDIO:
+### Iniciar o servidor MCP manualmente
+
+O servidor MCP é iniciado por STDIO:
 
 ```powershell
-uv run python -m apps.mcp_server.server
+python -m uv run --directory D:\programacao\data_extractor python -m apps.mcp_server.server
 ```
 
 O processo ficará aguardando mensagens do cliente MCP. Isso é esperado; ele não é uma API HTTP.
+
+Quando o MCP estiver conectado ao Codex, não é necessário executar esse comando manualmente. O próprio Codex inicia o processo sob demanda.
 
 Ferramentas disponíveis:
 
@@ -170,7 +174,29 @@ Ferramentas disponíveis:
 - `count_deputies_by_state`
 - `get_data_freshness`
 
-Configuração de exemplo:
+### Conectar ao Codex
+
+No Windows, como o executável `codex` pode não estar no `PATH`, usamos o caminho completo:
+
+```powershell
+& "C:\Users\victo\AppData\Local\OpenAI\Codex\bin\9ba750cce02d5e5c\codex.exe" mcp add public-data-mcp -- python -m uv run --directory "D:\programacao\data_extractor" python -m apps.mcp_server.server
+```
+
+Listar os servidores configurados:
+
+```powershell
+& "C:\Users\victo\AppData\Local\OpenAI\Codex\bin\9ba750cce02d5e5c\codex.exe" mcp list
+```
+
+O comando grava a configuração em `C:\Users\victo\.codex\config.toml`. Depois de adicionar ou alterar um servidor, abra uma nova tarefa do Codex para recarregar a configuração.
+
+Se `codex` estiver disponível no `PATH`, o comando equivalente é:
+
+```powershell
+codex mcp add public-data-mcp -- python -m uv run --directory "D:\programacao\data_extractor" python -m apps.mcp_server.server
+```
+
+Configuração genérica para clientes que aceitam JSON (não é necessária para o Codex configurado pelo comando acima):
 
 ```json
 {
@@ -246,3 +272,16 @@ uv run ruff check .
 uv run ruff format --check .
 uv run python -m apps.mcp_server.server
 ```
+
+## Fluxo recomendado no ambiente atual
+
+O PostgreSQL é o backend de persistência deste MVP. Para iniciar tudo antes de usar o MCP:
+
+```powershell
+docker compose up -d postgres
+docker compose ps
+python -m uv run alembic upgrade head
+python -m uv run python -m apps.extractor.cli sync
+```
+
+Depois que o servidor estiver registrado no Codex, não execute o último comando do fluxo manualmente. Basta abrir uma nova tarefa e solicitar o uso do servidor `public-data-mcp`.
